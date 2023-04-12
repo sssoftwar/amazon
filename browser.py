@@ -86,19 +86,20 @@ def init():
         code = validate(page)
         print('验证完成')
         # refresh()
-        page.keyboard.press('F5')
+        page.reload()
     # print(page.locator('#glow-ingress-block').count())
     # with page.expect_event("popup") as page_info:
     #     print('点击它')
     # page.wait_for_load_state('domcontentloaded')
     page.wait_for_timeout(10 * 1000)
-    if page.locator('#nav-global-location-data-modal-action').is_enabled():
-        print('点击地区按钮')
-        page.locator('#nav-global-location-data-modal-action').click()
-    elif page.locator('#glow-ingress-block').is_enabled():
+    if page.locator('#nav-global-location-data-modal-action').count() == 0:
+        print('打开的首页没有选择地区的按钮，需要刷新')
+        page.reload()
+    if page.locator('#glow-ingress-block').count():
         print('点击地区按钮')
         page.locator('#glow-ingress-block').click()
     else:
+        print('没有地区按钮，需要刷新')
         page.reload()
     # page.wait_for_load_state('domcontentloaded')
     while not 'United Kingdom' in page.locator('#glow-ingress-line2').inner_text() and not '英国' in page.locator('#glow-ingress-line2').inner_text():
@@ -137,39 +138,10 @@ def get_merchant_addr_by_asin(asin):
     try:
         print('前往%s商品页面'%asin)
         response = page.goto(f"https://www.amazon.com/dp/{asin}")
-        if 'Enter the characters you see below' in page.locator('body').nth(0).inner_text():
-            print('需要验证')
-            code = validate(page)
-            print('验证完成')
-        # page.goto(f"https://www.amazon.com/led-tactical-flashlight-rechargable/dp/{asin}/")
-        print('已打开%s商品页面'%asin)
-        # 根据官网，试试这样
-        # page.wait_for_load_state('domcontentloaded')
-        print('是否有卖家按钮:%d' % page.locator('#sellerProfileTriggerId').count())
-        if page.locator('#sellerProfileTriggerId').count() == 0:
-            print('没有地址')
-            if 'error' in page.title().lower():
-                print('需要提交验证码，暂时先终止程序')
-                merchant_info['name'] = -1
-                merchant_info['address'] = -1
-                return merchant_info
-            merchant_info['name'] = 'None'
-            merchant_info['address'] = 'None'
-            return merchant_info
-        # 有时候需要先点一下这个东西才能展开卖家链接
-        if page.locator('#newAccordionRow_1').count() > 0:
-            print('需要点击展开卖家')
-            page.locator('#newAccordionRow_1').nth(0).click()
         # 保存好页面1，当出故障时方便找原因
         with open('product.html', 'w', encoding='utf-8') as p:
             p.write(response.text())
         # print(page.content().text())
-        if page.locator('#sellerProfileTriggerId').nth(0).is_enabled():
-            # 进入卖家页面
-            page.locator('#sellerProfileTriggerId').nth(0).click()
-        # 保存好页面2，当出故障时方便找原因
-        with open('seller1.html', 'w', encoding='utf-8') as p:
-            p.write(response.text())
         if 'Enter the characters you see below' in page.locator('body').nth(0).inner_text():
             print('需要验证')
             code = validate(page)
@@ -181,6 +153,49 @@ def get_merchant_addr_by_asin(asin):
             with open('seller2.html', 'w', encoding='utf-8') as p:
                 p.write(page.content())
             page.keyboard.press('F5')
+        print('已打开%s商品页面'%asin)
+        # 根据官网，试试这样
+        # 最好等待一下，要等待下面的特殊情况中出现（如果有的话）
+        # page.wait_for_load_state('domcontentloaded')
+        page.wait_for_timeout(2000)
+        clicked_seller = 0
+        # 特殊情况1：需要点击更多商品选项才能展开卖家链接
+        if page.locator('#buybox-see-all-buying-choices').count() > 0:
+            print('需要点击展开购物选项')
+            page.locator('#buybox-see-all-buying-choices').nth(0).click()
+            page.wait_for_timeout(1000)
+            seller_detail_href_raw = page.locator('#aod-offer-soldBy > div > div > div.a-fixed-left-grid-col.a-col-right > a').nth(0).get_attribute('href')
+            seller_detail_href = 'https://www.amazon.com/sp?' + re.split(re.compile(r'\?'), seller_detail_href_raw)[-1]
+            print(seller_detail_href)
+            # 使用goto在本页访问卖家详情页，而点击按钮的话会打开新的标签页
+            page.goto(seller_detail_href)
+            clicked_seller = 1
+        # 特殊情况2：需要点击这个按钮才展开卖家链接
+        elif page.locator('#newAccordionRow_1').count() > 0:
+            print('需要点击展开卖家')
+            page.locator('#newAccordionRow_1').nth(0).click()
+        # 特殊情况3：需要要转到指定店铺才有卖家按钮
+        elif page.locator('#cross-border-widget-redirection-button').count() > 0:
+            page.goto(page.locator('#cross-border-widget-redirection-button').nth(0).get_attribute('href'))
+            if page.locator('#sp-cc-accept').count() > 0:
+                page.locator('#sp-cc-accept').nth(0).click()
+        print('是否有卖家按钮:%d' % page.locator('#sellerProfileTriggerId').count())
+        if page.locator('#sellerProfileTriggerId').count() > 0:
+            # 进入卖家页面
+            page.locator('#sellerProfileTriggerId').nth(0).click()
+        # 前一个判断条件保证了只在商品页面进行之后的代码，前一个条件为False的话说明当前已经是卖家详情页面了
+        elif not clicked_seller and page.locator('#sellerProfileTriggerId').count() == 0:
+            print('没有卖家按钮')
+            if 'error' in page.title().lower():
+                print('需要提交验证码，暂时先终止程序')
+                merchant_info['name'] = -1
+                merchant_info['address'] = -1
+                return merchant_info
+            merchant_info['name'] = 'None'
+            merchant_info['address'] = 'None'
+            return merchant_info
+        # 等待一下，否则下面的详情页面count为0
+        page.wait_for_timeout(1000)
         if page.locator('#page-section-detail-seller-info').count() ==0 :
             print('怎么回事')
             # 保存好页面4，当出故障时方便找原因
@@ -188,7 +203,10 @@ def get_merchant_addr_by_asin(asin):
                 p.write(page.content())
             # refresh()
             page.keyboard.press('F5')
+            page.wait_for_timeout(5 * 1000)
         seller_row_text = page.locator('#page-section-detail-seller-info').nth(0).inner_text()
+        # print(seller_row_text)
+        # time.sleep(10000)
         # 公司名称
         name = ''
         # 公司地址
@@ -201,7 +219,7 @@ def get_merchant_addr_by_asin(asin):
             address = re.split(r'Address:\W+',seller_row_text)[-1]
         merchant_info['name'] = name
         merchant_info['address'] = address
-        close_tag()
+        # close_tag()
         return merchant_info
     except Exception as e:
         print('错误信息：')
@@ -244,7 +262,9 @@ with page.expect_download() as download_info:
 '''
 
 if __name__ == '__main__':
-    asin = 'B0B6SS47TW'  # 有地址
+    # asin = 'B0B6SS47TW'  # 有地址
+    # asin = 'B06XZVFFS7'  # 有地址
+    asin = 'B00L524GH0'  # 有地址
     # asin = 'B08H1NTK82'  # 有地址
     # asin = 'B077BLB1DN'  # 没地址  
     info = get_merchant_addr_by_asin(asin)
