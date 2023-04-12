@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 from amazoncaptcha import AmazonCaptcha
 import main_async
 alive_page = []
-batch_size = 2
+batch_size = 10
 
 # 凡是goto和点击了按钮的后面都要处理亚马逊图片验证码
 # 如果无法正常跳转，获取验证页面中的图片网址
@@ -20,15 +20,18 @@ async def get_merchant_addr(playwright, merchant):
     proxy={
         "server": "http://127.0.0.1:7890"
     }
-    # browser = await playwright.firefox.launch(headless=False, proxy=proxy)
-    browser = await playwright.chromium.launch(headless=False, proxy=proxy)
+    browser = await playwright.firefox.launch(headless=False, proxy=proxy)
+    # browser = await playwright.chromium.launch(headless=False, proxy=proxy)
     page = await browser.new_page()
+    # 不接受这些图片
+    await page.route('**/*.{png,jpeg}',lambda route: route.abort())
     asin = merchant['asin']
     # alive_page.append(page)
     # page.route('**/*.{png,jpeg}',lambda route: route.abort())
     # await page.route(re.compile(r"(\.png)|(\.jpeg)"), cancel_request)
     # 设置收货地址，因为有些商品无法显示某些地区的卖家
     # await page.goto('https://www.amazon.com/')
+    # print('开始获取商品页')
     await page.goto(f"https://www.amazon.com/dp/{asin}")
     res_html = await page.content()
     # print(res_html)
@@ -44,7 +47,7 @@ async def get_merchant_addr(playwright, merchant):
         await page.reload()
     location = await page.locator('#glow-ingress-line2').inner_text()
     print('%s当前收货地址：%s' % (asin, location))
-    while not 'United Kingdom' in location and not '英国' in location:
+    while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
     # while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
         if await page.locator('#nav-global-location-data-modal-action').count() == 0:
             print('%s打开的首页没有选择地区的按钮，需要刷新'%asin)
@@ -54,9 +57,7 @@ async def get_merchant_addr(playwright, merchant):
             await page.locator('#glow-ingress-block').click()
         choose_country_btn_count = await page.locator('#GLUXCountryValue').count()
         if choose_country_btn_count == 0:
-            location = await page.locator('#glow-ingress-line2').inner_text()
             print('%s选择地区的按钮是0，刷新页面'%asin)
-            print('%s当前地址:%s'%(asin, location))
             # print(await page.locator('#glow-ingress-line2').count())
             # await page.locator('#glow-ingress-line2').click()
             # await page.reload()
@@ -65,22 +66,18 @@ async def get_merchant_addr(playwright, merchant):
         await page.locator('#GLUXCountryValue').click()
         await page.locator('#GLUXCountryList_6').click()
         print('%s选择了United Kingdom'%asin)
+        # await page.wait_for_timeout(2000)
         if 'United Kingdom' in await page.locator('#GLUXCountryValue').inner_text() or '英国' in await page.locator('#GLUXCountryValue').inner_text():
-            await page.locator('#a-popover-1 > div > div.a-popover-footer > span').click()
+            # await page.locator('#a-popover-1 > div > div.a-popover-footer > span').click()
+            # await page.locator('#a-popover-3 > div > div.a-popover-footer > span').click()
+            page.on("dialog", lambda dialog: dialog.accept())
+            if await page.get_by_text('完成').count() > 0:
+                await page.get_by_role("button", name=re.compile("完成")).click()
+            elif await page.get_by_text('Done').count() > 0:
+                await page.get_by_role("button", name=re.compile("done", re.IGNORECASE)).click()
             break
     # 初始化卖家数据结构
     merchant_info = {'row_index': merchant['row_index'],'asin':asin}
-    print('%s当前已打开的标签数量:%d' % (asin, len(alive_page)))
-    if len(alive_page) > 1:
-        print('%s标签数量竟然大于1了：%s' % (asin, alive_page))
-        # close_tag()
-    if len(alive_page) == 0:
-        print('%s先打开浏览器...'%asin)
-        # async with async_playwright() as playwright:
-        #     await run(playwright)
-        # time.sleep(1000)
-    # page = await alive_page[0]
-    # print(page)
     # 设置禁止图片加载
     # page.route(re.compile(r"(\.png)|(\.jpeg)"), cancel_request)
     # page.route(re.compile(r"(\.png)|(\.jpg)|(\.jpeg)"), route.aobrt())
@@ -118,7 +115,11 @@ async def get_merchant_addr(playwright, merchant):
         # 特殊情况3：需要要转到指定店铺才有卖家按钮
         elif await page.locator('#cross-border-widget-redirection-button').count() > 0:
             print('%s要跳转到其他商店'%asin)
-            await page.goto(await page.locator('#cross-border-widget-redirection-button').nth(0).get_attribute('href'))
+            href = await page.locator('#cross-border-widget-redirection-button').nth(0).get_attribute('href')
+            # print(href)
+            href = re.split(re.compile('\\/ref'), href)[0]
+            await page.goto(href)
+            await page.wait_for_timeout(3 * 1000)
             if await page.locator('#sp-cc-accept').count() > 0:
                 await page.locator('#sp-cc-accept').nth(0).click()
         # 等待一下，否则下面的详情页面count为0
@@ -162,7 +163,7 @@ async def get_merchant_addr(playwright, merchant):
                 p.write(res_html)
             # 保存好页面3，当出故障时方便找原因
             await page.reload()
-            time.sleep(10)
+            await page.wait_for_timeout(2 * 1000)
             print('%s睡眠结束'%asin)
         print('%s卖家信息标签数量：%d' % (asin, await page.locator('#page-section-detail-seller-info').count()))
         while await page.locator('#page-section-detail-seller-info').count() ==0 :
@@ -237,12 +238,7 @@ async def all():
     print('源文件：%s' % origin_file)
     # 先读取excel，获得要处理的卖家列表，每个元素是个字典，其应包含：row_index,asin,name,address
     meta_data_list = main_async.need_to_search(file_path=origin_file)
-    # time.sleep(3)
-    # print(meta_data)
-    # return meta_data
-    # print(meta_data)
     print(len(meta_data_list))
-    # time.sleep(100)
     while len(meta_data_list) > 0:
         # 循环开始时间，用于计算每次循环的耗时
         start_time = time.time()
@@ -253,7 +249,6 @@ async def all():
     # for i in ['B0B6SS47TW']:
     # for i in ['B0B6SS47TW', 'B06ZXWZNMG', 'B07YSP6YS5']:
         for i in work_list:
-        # while count < batch_size:
             print('启动了:%s' % i['asin'])
             task_list.append(asyncio.create_task(main(i)))
         print('放入协程后的work_list长度%d' % len(work_list))
@@ -263,8 +258,20 @@ async def all():
         # write_index = int(-str(batch_size))
         merchant_ready_to_write = merchant_info_list[-batch_size:]
         # print(merchant_ready_to_write)
+        count = 0
         for merchant in merchant_ready_to_write:
-            main_async.write_to_excel(origin_file, merchant)
+            print('第%d个'%count)
+            count += 1
+            # print('即将写入的数据：')
+            # print(merchant)
+            if merchant is None:
+                continue
+            result = main_async.write_to_excel(origin_file, merchant)
+            if result == -1:
+                print('数据对不齐，请检查')
+                break
+            elif result == 0:
+                print('数据为空，暂跳过，不写入')
         print('已经把多条数据写入了excel')
         end_time = time.time()
         now = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))

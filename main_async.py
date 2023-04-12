@@ -143,20 +143,21 @@ def write_to_excel(target_file_path,data):
     workbook = load_workbook(filename=target_file_path)
     # 选择工作表
     worksheet = workbook.active 
-    row_index = data['row_index']
-    # 写入公司名称和地址
-    # for i in data:
     print('准备写入以下数据：')
     print(data)
+    row_index = data['row_index']
     print('表asin：%s，缓存asin:%s' %(worksheet['B' + str(row_index)].value, data['asin']))
     if worksheet['B' + str(row_index)].value != data['asin']:
         print('数据对不齐了，退出程序')
         return -1
+    if len(data['name']) == 0:
+        return 0
     worksheet['F' + str(row_index)] = data['name']
     worksheet['G' + str(row_index)] = data['address']
         # row_index += 1
     try:
         workbook.save(filename=target_file_path)
+        return 1
     except Exception:
         print('写入失败：程序运行期间不要打开即将生成的目标文件')
         time.sleep(100000)
