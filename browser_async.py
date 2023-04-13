@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 from amazoncaptcha import AmazonCaptcha
 import main_async
 alive_page = []
-batch_size = 10
+batch_size = 5
 
 # 凡是goto和点击了按钮的后面都要处理亚马逊图片验证码
 # 如果无法正常跳转，获取验证页面中的图片网址
@@ -261,7 +261,6 @@ async def all():
         count = 0
         for merchant in merchant_ready_to_write:
             print('第%d个'%count)
-            count += 1
             # print('即将写入的数据：')
             # print(merchant)
             if merchant is None:
@@ -272,7 +271,10 @@ async def all():
                 break
             elif result == 0:
                 print('数据为空，暂跳过，不写入')
-        print('已经把多条数据写入了excel')
+                continue
+            else:
+                count += 1
+                print('已经把%d条数据写入了excel'%count)
         end_time = time.time()
         now = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))
         used_sec = int(end_time - start_time)
