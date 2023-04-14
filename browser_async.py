@@ -3,11 +3,94 @@ from playwright.async_api import async_playwright
 from amazoncaptcha import AmazonCaptcha
 import main_async
 alive_page = []
-batch_size = 2
+batch_size = 1
 '''
     1.经验就是await page.wait_for_load_state('domcontentloaded')和await page.wait_for_timeout()搭配能
     确保标签如果有的话一定会被捕捉到（timeout时间会影响最终质量，但是这样做能节省整体时间）
 '''
+
+# 判断是否有卖家按钮
+async def has_seller_info(page, asin):
+    # 特殊情况1：需要点击这个按钮才展开卖家链接
+    if await page.locator('#newAccordionRow_1').count()> 0:
+        print('%s特殊情况1：需要点击展开卖家'%asin)
+        await page.locator('#newAccordionRow_1').nth(0).click()
+    # 特殊情况2：需要要转到指定店铺才有卖家按钮
+    elif await page.locator('#cross-border-widget-redirection-button').count() > 0:
+        print('%s特殊情况2：要跳转到其他商店'%asin)
+        href = await page.locator('#cross-border-widget-redirection-button').nth(0).get_attribute('href')
+        # print(href)
+        href = re.split(re.compile('\\/ref'), href)[0]
+        await page.goto(href)
+        # await page.wait_for_timeout(3 * 1000)
+        await page.wait_for_load_state('domcontentloaded')
+        if await page.locator('#sp-cc-accept').count() > 0:
+            await page.locator('#sp-cc-accept').nth(0).click()
+    # 跳转页面之后要等待页面加载
+    await page.wait_for_load_state('domcontentloaded')
+    await page.wait_for_timeout(1 * 1000)
+    if await page.locator('#sellerProfileTriggerId').count() > 0:
+        # 进入卖家页面
+        await page.locator('#sellerProfileTriggerId').nth(0).click()
+        print('点击了卖家按钮，正在进入卖家详情页')
+        # 返回1说明有卖家按钮，且已点击进入
+        return 1
+    # 特殊情况3：需要点击更多商品选项才能展开卖家链接
+    # 此特殊情况下，处理完成后会直接到达卖家详情页面
+    elif await page.locator('#buybox-see-all-buying-choices').count() > 0:
+        print('%s特殊情况3：需要点击展开购物选项'%asin)
+        await page.locator('#buybox-see-all-buying-choices').nth(0).click()
+        await page.wait_for_timeout(1000)
+        seller_detail_href_raw = await page.locator('#aod-offer-soldBy > div > div > div.a-fixed-left-grid-col.a-col-right > a').nth(0).get_attribute('href')
+        # print(seller_detail_href_raw)
+        seller_detail_href = 'https://www.amazon.com/sp?' + re.split(re.compile(r'\?'), seller_detail_href_raw)[-1]
+        # print(seller_detail_href)
+        # 使用goto在本页访问卖家详情页，而点击按钮的话会打开新的标签页
+        await page.goto(seller_detail_href)
+        # 0不需要跳转，已在详情页
+        return 0
+    else:
+        # 返回-1说明没有卖家信息，可以切换地区试一下
+        return -1
+
+# 选择地区
+async def select_location(page):
+    while await page.locator('#glow-ingress-block').count() == 0:
+        print('刚开始就出现了错误页面，需要刷新')
+        await page.reload()
+    location = await page.locator('#glow-ingress-line2').inner_text()
+    print('当前收货地址：%s' % (location))
+    while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
+    # while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
+        if await page.locator('#nav-global-location-data-modal-action').count() == 0:
+            print('打开的首页没有选择地区的按钮，需要刷新')
+            page.reload()
+        if await page.locator('#glow-ingress-block').count() > 0:
+            print('点击地区按钮1')
+            await page.locator('#glow-ingress-block').click()
+        choose_country_btn_count = await page.locator('#GLUXCountryValue').count()
+        if choose_country_btn_count == 0:
+            print('选择地区的按钮是0，刷新页面')
+            # print(await page.locator('#glow-ingress-line2').count())
+            # await page.locator('#glow-ingress-line2').click()
+            # await page.reload()
+            await page.wait_for_timeout(1 * 1000)
+            # continue
+        await page.locator('#GLUXCountryValue').click()
+        await page.locator('#GLUXCountryList_6').click()
+        print('选择了United Kingdom')
+        # await page.wait_for_timeout(2000)
+        if 'United Kingdom' in await page.locator('#GLUXCountryValue').inner_text() or '英国' in await page.locator('#GLUXCountryValue').inner_text():
+            print('是不是选对了:%s' % await page.locator('#GLUXCountryValue').inner_text())
+            # await page.locator('#a-popover-1 > div > div.a-popover-footer > span').click()
+            # await page.locator('#a-popover-3 > div > div.a-popover-footer > span').click()
+            # time.sleep(3)
+            await page.wait_for_timeout(500)
+            # print(page)
+            page.on("dialog", lambda dialog: dialog.accept())
+            await page.get_by_role("button", name=re.compile(r"Done|完成", re.IGNORECASE)).click()
+            await page.wait_for_timeout(3000)
+            break
 
 # 凡是goto和点击了按钮的后面都要处理亚马逊图片验证码
 # 如果无法正常跳转，获取验证页面中的图片网址
@@ -47,42 +130,7 @@ async def get_merchant_addr(playwright, merchant):
         # await page.reload()
     # 等待页面加载完成
     await page.wait_for_timeout(1000)
-    while await page.locator('#glow-ingress-block').count() == 0:
-        print('%s刚开始就出现了错误页面，需要刷新'%asin)
-        await page.reload()
-    location = await page.locator('#glow-ingress-line2').inner_text()
-    print('%s当前收货地址：%s' % (asin, location))
-    while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
-    # while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
-        if await page.locator('#nav-global-location-data-modal-action').count() == 0:
-            print('%s打开的首页没有选择地区的按钮，需要刷新'%asin)
-            page.reload()
-        if await page.locator('#glow-ingress-block').count() > 0:
-            print('%s点击地区按钮1'%asin)
-            await page.locator('#glow-ingress-block').click()
-        choose_country_btn_count = await page.locator('#GLUXCountryValue').count()
-        if choose_country_btn_count == 0:
-            print('%s选择地区的按钮是0，刷新页面'%asin)
-            # print(await page.locator('#glow-ingress-line2').count())
-            # await page.locator('#glow-ingress-line2').click()
-            # await page.reload()
-            await page.wait_for_timeout(1 * 1000)
-            # continue
-        await page.locator('#GLUXCountryValue').click()
-        await page.locator('#GLUXCountryList_6').click()
-        print('%s选择了United Kingdom'%asin)
-        # await page.wait_for_timeout(2000)
-        if 'United Kingdom' in await page.locator('#GLUXCountryValue').inner_text() or '英国' in await page.locator('#GLUXCountryValue').inner_text():
-            print('是不是选对了:%s' % await page.locator('#GLUXCountryValue').inner_text())
-            # await page.locator('#a-popover-1 > div > div.a-popover-footer > span').click()
-            # await page.locator('#a-popover-3 > div > div.a-popover-footer > span').click()
-            # time.sleep(3)
-            await page.wait_for_timeout(500)
-            # print(page)
-            page.on("dialog", lambda dialog: dialog.accept())
-            await page.get_by_role("button", name=re.compile(r"Done|完成", re.IGNORECASE)).click()
-            await page.wait_for_timeout(3000)
-            break
+    # 现在改成如果页面有卖家按钮的话就不选地区了
     # 初始化卖家数据结构
     merchant_info = {'row_index': merchant['row_index'],'asin':asin}
     # 设置禁止图片加载
@@ -96,47 +144,24 @@ async def get_merchant_addr(playwright, merchant):
             print('%s需要验证'%asin)
             validate(page)
             print('%s验证完成'%asin)
-        # page.goto(f"https://www.amazon.com/led-tactical-flashlight-rechargable/dp/{asin}/")
-        # 根据官网，试试这样
         # 最好等待一下，要等待下面的特殊情况中出现（如果有的话）
         # await page.wait_for_timeout(2000)
-        clicked_seller = 0
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_timeout(1000)
         # while True:
         #     print(await page.locator('#cross-border-widget-redirection-button').count())
         #     time.sleep(1)
-        # 特殊情况1：需要点击更多商品选项才能展开卖家链接
-        if await page.locator('#buybox-see-all-buying-choices').count() > 0:
-            print('%s需要点击展开购物选项'%asin)
-            await page.locator('#buybox-see-all-buying-choices').nth(0).click()
-            await page.wait_for_timeout(1000)
-            seller_detail_href_raw = await page.locator('#aod-offer-soldBy > div > div > div.a-fixed-left-grid-col.a-col-right > a').nth(0).get_attribute('href')
-            # print(seller_detail_href_raw)
-            seller_detail_href = 'https://www.amazon.com/sp?' + re.split(re.compile(r'\?'), seller_detail_href_raw)[-1]
-            # print(seller_detail_href)
-            # 使用goto在本页访问卖家详情页，而点击按钮的话会打开新的标签页
-            await page.goto(seller_detail_href)
-            clicked_seller = 1
-        # 特殊情况2：需要点击这个按钮才展开卖家链接
-        elif await page.locator('#newAccordionRow_1').count()> 0:
-            print('%s需要点击展开卖家'%asin)
-            await page.locator('#newAccordionRow_1').nth(0).click()
-        # 特殊情况3：需要要转到指定店铺才有卖家按钮
-        elif await page.locator('#cross-border-widget-redirection-button').count() > 0:
-            print('%s要跳转到其他商店'%asin)
-            href = await page.locator('#cross-border-widget-redirection-button').nth(0).get_attribute('href')
-            # print(href)
-            href = re.split(re.compile('\\/ref'), href)[0]
-            await page.goto(href)
-            # await page.wait_for_timeout(3 * 1000)
-            await page.wait_for_load_state('domcontentloaded')
-            if await page.locator('#sp-cc-accept').count() > 0:
-                await page.locator('#sp-cc-accept').nth(0).click()
-        # 等待一下，否则下面的详情页面count为0
-        # await page.wait_for_timeout(3 * 1000)
-        await page.wait_for_load_state('domcontentloaded')
-        await page.wait_for_timeout(1 * 1000)
+        has_seller = await has_seller_info(page, asin)
+        if has_seller >= 0:
+            print('有卖家信息，继续进行 ')
+        else:
+            print('暂时没有卖家按钮，切换地区试试')
+            await select_location(page)
+            if await has_seller_info(page, asin) == -1:
+                print('%s没有卖家按钮，将会返会None数据'%asin)
+                merchant_info['name'] = 'None'
+                merchant_info['address'] = 'None'
+                return merchant_info
         # 可能会出现Sorry页面，刷新就行了
         # print(await page.title())
         while 'orry' in await page.title() or 'Not Found' in await page.title():
@@ -149,47 +174,22 @@ async def get_merchant_addr(playwright, merchant):
             # time.sleep(3)
             await page.wait_for_load_state('domcontentloaded')
             print('%s睡眠结束'%asin)
-        seller_btn_count = await page.locator('#sellerProfileTriggerId').count()
-        print('%s是否有卖家按钮:%d' % (asin, seller_btn_count))
         # search_seller_btn_count = 0
+        # 最新：现在直接检查是否有#page-section-detail-seller-info标签，
+        # 有则说明有卖家地址，没有则说明没卖家地址，都将返回各自的数据，不再检查sellerProfileTriggerId
         # 到这里的时候，确定了如果有卖家信息是有卖家按钮的，没卖家按钮除了特殊情况1外都是没卖家信息的，可以直接返回卖家数据了
         # 前一个判断条件保证了只在商品页面进行之后的代码，前一个条件为False的话说明当前已经是卖家详情页面了
         # while not clicked_seller and await page.locator('#sellerProfileTriggerId').count() == 0:
+        '''
         if not clicked_seller and await page.locator('#sellerProfileTriggerId').count() == 0:
-            print('%s没有卖家按钮，将会返回卖家封装好的数据'%asin)
-            # if search_seller_btn_count < 5:
-            #     # 有时候在跳转商店之后确实还是没有卖家按钮
-            #     search_seller_btn_count += 1
-            #     print('第%d次需要等待卖家按钮出现' % search_seller_btn_count)
-            #     await page.wait_for_timeout(500)
-            #     continue
-            title = await page.title()
-            title = title.lower()
-            if 'error' in title:
-                print('%s需要提交验证码，暂时先终止程序'%asin)
-                merchant_info['name'] = -1
-                merchant_info['address'] = -1
-                return merchant_info
-            merchant_info['name'] = 'None'
-            merchant_info['address'] = 'None'
-            return merchant_info
         elif await page.locator('#sellerProfileTriggerId').count() > 0:
             # 进入卖家页面
             await page.locator('#sellerProfileTriggerId').nth(0).click()
+        '''
         # 等待一下，否则下面的详情页面count为0
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_timeout(1 * 1000)
-        # 可能会出现Sorry页面，刷新就行了
-        while 'orry' in await page.title():
-            print('%s出错了2，将会刷新'%asin)
-            res_html = await page.content()
-            with open('Sorry2.html', 'w', encoding='utf-8') as p:
-                p.write(res_html)
-            # 保存好页面3，当出故障时方便找原因
-            await page.reload()
-            await page.wait_for_timeout(2 * 1000)
-            print('%s睡眠结束'%asin)
-        print('%s卖家页面指定标签数量：%d' % (asin, await page.locator('#page-section-detail-seller-info').count()))
+        print('%s卖家页面目标标签数量：%d' % (asin, await page.locator('#page-section-detail-seller-info').count()))
         while await page.locator('#page-section-detail-seller-info').count() ==0 :
             print('%s没有：#page-section-detail-seller-info，需要刷新页面'%asin)
             res_html = await page.content()
@@ -200,7 +200,13 @@ async def get_merchant_addr(playwright, merchant):
             await page.wait_for_load_state('domcontentloaded')
             print('%s睡眠结束'%asin)
         seller_row_text = await page.locator('#page-section-detail-seller-info').nth(0).inner_text()
+        if len(seller_row_text) < 70 and (not '地址' in seller_row_text or 'Address' in seller_row_text):
+            print('大概是没数据了，返回None')
+            merchant_info['name'] = '手动搜索看一下'
+            merchant_info['address'] = '手动搜索看一下'
+            return merchant_info
         # print(seller_row_text)
+        # print(len(seller_row_text))
         # time.sleep(100000)
         # 公司名称
         name = ''
@@ -274,7 +280,7 @@ async def all():
     # for i in ['B0B6SS47TW']:
     # for i in ['B0B6SS47TW', 'B06ZXWZNMG', 'B07YSP6YS5']:
         for i in work_list:
-            print('启动了:%s' % i['asin'])
+            print('启动了第%d行的%s' % (i['row_index'],i['asin']))
             if len(i['asin']) < 5:
                 continue
             task_list.append(asyncio.create_task(main(i)))

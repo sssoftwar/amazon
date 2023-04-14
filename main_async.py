@@ -63,7 +63,6 @@ def get_merchant_addr_by_asin_old(asin):
     print(merchantID_ele)
     print(merchantID)
     # 拼接商家详情页的url
-    # merchant_url = 'https://www.amazon.com/gp/help/seller/at-a-glance.html/ref=dp_merchant_link?ie=UTF8&seller='+merchantID+"&asin="+asin
     merchant_url = f'https://www.amazon.com/gp/help/seller/at-a-glance.html/ref=dp_merchant_link?ie=UTF8&seller={merchantID}&asin={asin}'
     print(merchant_url)
     print('请求商家%s的数据'%merchantID)
@@ -98,8 +97,6 @@ def get_merchant_addr_by_asin_old(asin):
 def need_to_search(file_path):
     # 每一批的数量
     global size
-    # 用于存放asin值
-    asin_list = []
     # 用于存放卖家
     merchant_list = []
     workbook = load_workbook(filename=file_path)
