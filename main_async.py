@@ -249,42 +249,6 @@ def main():
     # time.sleep(3)
     # print(meta_data)
     return meta_data
-    # 复制目标文件
-    while prepare_target_file(origin_file) == 1:
-        # asin = 'B077BLB1DN'  # 要查询的 ASIN 号码  
-        count = 1
-        # meta_data=[asin]
-        # 控制程序是否向下运行
-        work_flag = 1
-        print('{0:*^50}'.format('共有%d个需要处理' % len(meta_data['asin_list'])))
-        for i in meta_data['asin_list']:
-            print('第%d个' % count)
-            merchant = get_merchant_addr_by_asin(i)
-            print(merchant)
-            if merchant['name'] is None or merchant['name'] == -1:
-                print('检查输出的html')
-                work_flag = 0
-                break
-            merchant_list.append(merchant)
-            count += 1
-        # print(merchant_list)
-        if work_flag == 1:
-            row_index = meta_data['row_index']
-            write_to_excel(target_file,merchant_list,row_index)
-        print('已写入并保存：%s' % target_file)
-        # input('任务完成，按回车退出')
-        sec = 2
-        end_time = time.time()
-        last_update_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))
-        used_sec = int(end_time - start_time)
-        need_sec = (4617 - meta_data['row_index'] - size) * used_sec / 2
-        last_min = need_sec / 60
-        last_hour = last_min / 60
-        last_min = last_min % 60
-        last_sec = need_sec % 60
-        print('此轮循环结束时间%s，耗时%d秒，剩余%d小时%d分%d秒' % (last_update_time, used_sec, last_hour, last_min, last_sec))
-        # print('%d秒后进行下一次任务'%sec)
-        # time.sleep(sec)
 
 
 if __name__=='__main__':
