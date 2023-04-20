@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 from amazoncaptcha import AmazonCaptcha
 import main_async
 alive_page = []
-batch_size = 1
+batch_size = 10
 '''
     1.经验就是await page.wait_for_load_state('domcontentloaded')和await page.wait_for_timeout()搭配能
     确保标签如果有的话一定会被捕捉到（timeout时间会影响最终质量，但是这样做能节省整体时间）
@@ -55,9 +55,13 @@ async def has_seller_info(page, asin):
 
 # 选择地区
 async def select_location(page):
+    flush_count = 0
     while await page.locator('#glow-ingress-block').count() == 0:
         print('刚开始就出现了错误页面，需要刷新')
         await page.reload()
+        flush_count+=1
+        if flush_count > 10:
+            return -1
     location = await page.locator('#glow-ingress-line2').inner_text()
     print('当前收货地址：%s' % (location))
     while not 'United Kingdom' in await page.locator('#glow-ingress-line2').inner_text() and not '英国' in await page.locator('#glow-ingress-line2').inner_text():
@@ -107,8 +111,9 @@ async def get_merchant_addr(playwright, merchant):
     proxy={
         "server": "http://127.0.0.1:7890"
     }
-    browser = await playwright.firefox.launch(headless=True, proxy=proxy)
-    # browser = await playwright.firefox.launch(headless=False, proxy=proxy)
+    # browser = await playwright.firefox.launch(headless=True, proxy=proxy)
+    browser = await playwright.firefox.launch(headless=False, proxy=proxy)
+    # browser = await playwright.chromium.launch(headless=True, proxy=proxy)
     # browser = await playwright.chromium.launch(headless=False, proxy=proxy)
     page = await browser.new_page()
     # 不接受这些图片
@@ -156,7 +161,11 @@ async def get_merchant_addr(playwright, merchant):
             print('有卖家信息，继续进行 ')
         else:
             print('暂时没有卖家按钮，切换地区试试')
-            await select_location(page)
+            if await select_location(page) == -1:
+                print('%s这个asin似乎是有问题的，将会返会-1数据'%asin)
+                merchant_info['name'] = '-1'
+                merchant_info['address'] = '-1'
+                return merchant_info
             if await has_seller_info(page, asin) == -1:
                 print('%s没有卖家按钮，将会返会None数据'%asin)
                 merchant_info['name'] = 'None'
