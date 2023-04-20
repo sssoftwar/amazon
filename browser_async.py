@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 from amazoncaptcha import AmazonCaptcha
 import main_async
 alive_page = []
-batch_size = 10
+batch_size = 5
 '''
     1.经验就是await page.wait_for_load_state('domcontentloaded')和await page.wait_for_timeout()搭配能
     确保标签如果有的话一定会被捕捉到（timeout时间会影响最终质量，但是这样做能节省整体时间）
@@ -57,7 +57,7 @@ async def has_seller_info(page, asin):
 async def select_location(page):
     flush_count = 0
     while await page.locator('#glow-ingress-block').count() == 0:
-        print('刚开始就出现了错误页面，需要刷新')
+        print('刚开始就出现了错误页面，需要刷新%d' % flush_count)
         await page.reload()
         flush_count+=1
         if flush_count > 10:
@@ -111,8 +111,8 @@ async def get_merchant_addr(playwright, merchant):
     proxy={
         "server": "http://127.0.0.1:7890"
     }
-    # browser = await playwright.firefox.launch(headless=True, proxy=proxy)
-    browser = await playwright.firefox.launch(headless=False, proxy=proxy)
+    browser = await playwright.firefox.launch(headless=True, proxy=proxy)
+    # browser = await playwright.firefox.launch(headless=False, proxy=proxy)
     # browser = await playwright.chromium.launch(headless=True, proxy=proxy)
     # browser = await playwright.chromium.launch(headless=False, proxy=proxy)
     page = await browser.new_page()
