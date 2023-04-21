@@ -1,0 +1,6 @@
+amazoncaptcha==0.5.9
+beautifulsoup4==4.11.1
+openpyxl==3.0.9
+playwright==1.32.1
+pyperclip==1.8.2
+Requests==2.28.2
