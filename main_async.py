@@ -12,8 +12,6 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
     "Cookies": 'session-id=142-2111274-1864942; i18n-prefs=USD; ubid-main=133-5395023-6632938; regStatus=pre-register; aws-target-visitor-id=1680780629969-980708; aws-target-data={"support":"1"}; AMCV_7742037254C95E840A4C98A6@AdobeOrg=1585540135|MCIDTS|19454|MCMID|70846277884120543020010085350038364362|MCAID|NONE|MCOPTOUT-1680787844s|NONE|vVersion|4.4.0; s_fid=2D462374F844CF91-23293BC8ABB62FAE; AMCV_4A8581745834114C0A495E2B@AdobeOrg=-2121179033|MCIDTS|19454|MCMID|41906582696403411915654244310448622955|MCAID|NONE|MCOPTOUT-1680794909s|NONE|vVersion|5.3.0; mbox=PC#b554a32b65594b2890df4865cfd840b7.32_0#1744032510|session#845a61f56ba5485ea287833fca7d9840#1680789570; skin=noskin; session-id-time=2082787201l; sp-cdn="L5Z9:GB"; csm-hit=adb:adblk_yes&t:1680925580498&tb:99B2D08WD2ZZ3345KVX3+s-Q8D1GDV9CZT3XQMZMKRQ|1680925580498; session-token=q38H3/CVLzNJjx6v9G6kItHtbj54FLg8BKKtfGqYL7eWsR91wQXXj5s7psiY00fV8jKB648domicpbrrNAga/sXPM5xI/0Uj7UPSKn1jREKvF0nbkxAwB5i0UfC4RZMtDwpKvL+wxHfPtbeR7Q88kb32M7Gy6bj9AF8ngtGa5ACAfH6cLqSVPTF4xfaSHO9KaSahoFhY+iNV++lJW4ydlcI7ECKGypRUj/05kl5OdhM='
 }
-# 一次任务一批的数量
-size = 2
 
 # 抓取地址
 def get_merchant_addr_by_asin_old(asin):
@@ -92,11 +90,61 @@ def get_merchant_addr_by_asin_old(asin):
             merchant_info['address'] = address
     return merchant_info
 
+# 找到与excel中重复的asin，直接将地址等信息复制过来，不再发起网络请求
+# 先将重复值一次性写入表格
+def need_to_search_filter(asin_list, file_path):
+    workbook = load_workbook(filename=file_path)
+    # 选择工作表
+    worksheet = workbook.active 
+    # 获取asin列的值
+    asin_col = worksheet['B']
+        # print(i)
+        # print(i.value)
+    after_filter_list = asin_list
+    ready_to_write = []
+    # 将会删除的位置
+    filter_index = -1
+    for j in asin_list:
+        start_time = time.time()
+        filter_index += 1
+        # 超过一定数量非期望数据就不再找了，当作他不存在期望数据
+        filter_count = 0
+        for i in asin_col:
+            if j['asin'] == i.value and j['row_index'] > i.row and worksheet['G' + str(i.row)].value is not None:
+                # 如果没有正常的数据，继续乡下找
+                if len(worksheet['G' + str(i.row)].value) < 5 and filter_count < 2:
+                    # print('第%d行的%s，地址不是期望的，继续向下找'%(i.row, i.value))
+                    continue
+                j['name'] = worksheet['F'+str(i.row)].value
+                j['address'] = worksheet['G'+str(i.row)].value
+                # print('i:%s,i.index:%d,j:%s,j.index:%d'%(i.value,i.row,j['asin'],j['row_index']))
+                # print(type(i.row))
+                # print(type(j['row_index']))
+                # print('j:%d>i:%d,%s'%(j['row_index'],i.row,j['row_index'] > i.row))
+                # print(j)
+                del_merchant = after_filter_list.pop(filter_index)
+                ready_to_write.append(del_merchant)
+                # print('删除了%s'%del_merchant)
+                # time.sleep(10)
+                break
+    end_time1 = time.time()
+    now = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time1))
+    used_sec = int(end_time1 - start_time)
+    print('小步骤1用时%d秒，当前时间%s' %(used_sec, now))
+    # 开始写入重复的数据
+    start_time2 = time.time()
+    # for i in ready_to_write:
+    write_list_to_excel(file_path, ready_to_write)
+    end_time2 = time.time()
+    now = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time2))
+    used_sec = int(end_time2 - start_time2)
+    print('小步骤2用时%d秒，当前时间%s' %(used_sec, now))
+    return after_filter_list
+
+
 # 获取asin列表
 # 需要在这里选出没处理过的asin
 def need_to_search(file_path):
-    # 每一批的数量
-    global size
     # 用于存放卖家
     merchant_list = []
     workbook = load_workbook(filename=file_path)
@@ -113,12 +161,14 @@ def need_to_search(file_path):
         index+=1
         # 注意这里是根据地址来判断是否要处理此商家
         g_cell = worksheet['G'+str(index)].value
-        if g_cell is not None and g_cell != '-1':
+        if g_cell is not None and len(g_cell) > 1:
             # print('%s不需要处理'%(cell.value))
             continue
         count += 1
         if count == 1:
             print('从第%d行开始'% (index))
+            print(type(worksheet['F' + str(index)].value))
+            print(worksheet['F' + str(index)].value)
         # 装入行数
         merchant_info['row_index'] = index
         # 装入asin
@@ -131,9 +181,35 @@ def need_to_search(file_path):
         # 装入地址
         merchant_info['address'] = worksheet['G' + str(index)].value
         merchant_list.append(merchant_info)
-        # print(merchant_info)
+    # print('原始列表长度:%d' % len(merchant_list))
+    merchant_list = need_to_search_filter(merchant_list, file_path)
+    # print('过滤后的列表长度:%d' % len(merchant_list))
     return merchant_list
 
+# 写入本地，参数分别是目标文件、卖家数据data_list，data_list是数组，里面存放准备写入的data，而data应该是字典，便于在写入前验证数据
+def write_list_to_excel(target_file_path,data_list):
+    workbook = load_workbook(filename=target_file_path)
+    # 选择工作表
+    worksheet = workbook.active 
+    print('准备写入数据的长度：%d' % len(data_list))
+    # print(data)
+    for data in data_list:
+        row_index = data['row_index']
+        # print('表asin：%s，缓存asin:%s' %(worksheet['B' + str(row_index)].value, data['asin']))
+        if worksheet['B' + str(row_index)].value != data['asin']:
+            print('数据对不齐了，退出程序')
+            return -1
+        if len(data['name']) == 0:
+            return 0
+        worksheet['F' + str(row_index)] = data['name']
+        worksheet['G' + str(row_index)] = data['address']
+            # row_index += 1
+    try:
+        workbook.save(filename=target_file_path)
+        return 1
+    except Exception:
+        print('写入失败：程序运行期间不要打开即将生成的目标文件')
+        time.sleep(100000)
 
 # 写入本地，参数分别是目标文件、卖家数据data，data应该是字典，便于在写入前验证数据
 def write_to_excel(target_file_path,data):
@@ -252,70 +328,8 @@ def main():
 
 
 if __name__=='__main__':
-    main()
-    '''
-    # 获取用户目录
-    home_dir = os.path.expanduser('~')
-    # 设置工作目录
-    origin_dir = os.path.join(home_dir, 'Desktop', 'amazon_task')
-    # 目录不存在就创建 
-    if not os.path.exists(origin_dir):  
-        print('{0:+^80}'.format('工作目录不存在，已创建：【%s】'%origin_dir))
-        print('{0:+^50}'.format('先把要处理的Excel文件放到此目录中，再继续运行程序'))
-        os.mkdir(origin_dir)
-        print('{0:+^50}'.format('按回车继续'))
-        input('')
-    origin_file = select_file(origin_dir=origin_dir)
-    print(origin_file)
-    # time.sleep(1000)
-    # print('源文件：%s' % origin_file)
-    # 源文件名
-    res = re.search(r'(\w+).xlsx',origin_file)
-    origin_file_name = res.group(1)
-    # 根据源文件来命名目标文件
-    target_file_name = origin_file_name + '_copy.xlsx'
-    target_file = os.path.join(origin_dir, target_file_name)
-    # print('目标文件：%s' % target_file)
-    # 复制目标文件
-    while prepare_target_file(origin_file, target_file) == 1:
-        # 循环开始时间，用于计算每次循环的耗时
-        start_time = time.time()
-        # asin = 'B077BLB1DN'  # 要查询的 ASIN 号码  
-        merchant_list = []
-        # 先读取excel，获得要处理的个数，注意这里是处理目标文件
-        meta_data = need_to_search(file_path=target_file)
-        print(meta_data)
-        count = 1
-        # meta_data=[asin]
-        # 控制程序是否向下运行
-        work_flag = 1
-        print('{0:*^50}'.format('共有%d个需要处理' % len(meta_data['asin_list'])))
-        for i in meta_data['asin_list']:
-            print('第%d个' % count)
-            merchant = get_merchant_addr_by_asin(i)
-            print(merchant)
-            if merchant['name'] is None or merchant['name'] == -1:
-                print('检查输出的html')
-                work_flag = 0
-                break
-            merchant_list.append(merchant)
-            count += 1
-        # print(merchant_list)
-        if work_flag == 1:
-            row_index = meta_data['row_index']
-            write_to_excel(target_file,merchant_list,row_index)
-        print('已写入并保存：%s' % target_file)
-        # input('任务完成，按回车退出')
-        sec = 2
-        end_time = time.time()
-        last_update_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))
-        used_sec = int(end_time - start_time)
-        need_sec = (4617 - meta_data['row_index'] - size) * used_sec / 2
-        last_min = need_sec / 60
-        last_hour = last_min / 60
-        last_min = last_min % 60
-        last_sec = need_sec % 60
-        print('此轮循环结束时间%s，耗时%d秒，剩余%d小时%d分%d秒' % (last_update_time, used_sec, last_hour, last_min, last_sec))
-        # print('%d秒后进行下一次任务'%sec)
-        # time.sleep(sec)
-    '''
+    # main()
+    strr = 'C:/Users/x/Desktop/amazon_task/自行车灯 - 副本 (2).xlsx'
+    meta_data = need_to_search(file_path=strr)
+    # print(meta_data)
+    # need_to_search2(meta_data, file_path=strr)

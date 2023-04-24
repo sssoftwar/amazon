@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 from amazoncaptcha import AmazonCaptcha
 import main_async
 alive_page = []
-batch_size = 5
+batch_size = 1
 '''
     1.经验就是await page.wait_for_load_state('domcontentloaded')和await page.wait_for_timeout()搭配能
     确保标签如果有的话一定会被捕捉到（timeout时间会影响最终质量，但是这样做能节省整体时间）
@@ -215,7 +215,6 @@ async def get_merchant_addr(playwright, merchant):
             merchant_info['address'] = '手动搜索看一下'
             return merchant_info
         # print(seller_row_text)
-        # print(len(seller_row_text))
         # time.sleep(100000)
         # 公司名称
         name = ''
@@ -229,8 +228,6 @@ async def get_merchant_addr(playwright, merchant):
             address = re.split(r'Address:\W+',seller_row_text)[-1]
         merchant_info['name'] = name
         merchant_info['address'] = address
-        # close_tag()
-        # await page.wait_for_timeout(5000)
         # print(merchant_info)
         await page.close()
         return merchant_info
@@ -278,7 +275,7 @@ async def all():
     print('源文件：%s' % origin_file)
     # 先读取excel，获得要处理的卖家列表，每个元素是个字典，其应包含：row_index,asin,name,address
     meta_data_list = main_async.need_to_search(file_path=origin_file)
-    # print(len(meta_data_list))
+    print('准备网络获取，长度：%d' % len(meta_data_list))
     while len(meta_data_list) > 0:
         # 循环开始时间，用于计算每次循环的耗时
         start_time = time.time()
